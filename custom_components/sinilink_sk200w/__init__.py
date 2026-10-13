@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SLAVE,
     DEFAULT_TIMEOUT,
+    DOMAIN,
 )
 from .coordinator import SinilinkDataUpdateCoordinator
 from .modbus_client import SinilinkModbusClient
@@ -33,6 +34,13 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.SWITCH,
 ]
+
+
+def get_coordinator(
+    hass: HomeAssistant, entry: SinilinkConfigEntry
+) -> SinilinkDataUpdateCoordinator:
+    """Return the coordinator stored for a config entry."""
+    return hass.data[DOMAIN][entry.entry_id]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SinilinkConfigEntry) -> bool:
@@ -65,7 +73,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SinilinkConfigEntry) -> 
     )
     await coordinator.async_config_entry_first_refresh()
 
-    entry.runtime_data = coordinator
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    if hasattr(entry, "runtime_data"):
+        entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -76,7 +86,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: SinilinkConfigEntry) ->
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        entry.runtime_data.client.close()
+        coordinator: SinilinkDataUpdateCoordinator | None = hass.data.get(
+            DOMAIN, {}
+        ).pop(entry.entry_id, None)
+        if coordinator is not None:
+            await coordinator.async_shutdown()
+            coordinator.client.close()
     return unload_ok
 
 

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, replace
 from datetime import timedelta
+from typing import Any
 
 from pymodbus.exceptions import ModbusException
 
@@ -42,6 +44,12 @@ from .const import (
     VOLTAGE_SCALE,
 )
 from .modbus_client import SinilinkModbusClient
+
+# ``config_entry`` was added to ``DataUpdateCoordinator`` in newer Home Assistant
+# releases.  Detect support so the integration also runs on older versions.
+_SUPPORTS_CONFIG_ENTRY = (
+    "config_entry" in inspect.signature(DataUpdateCoordinator.__init__).parameters
+)
 
 
 @dataclass(slots=True)
@@ -103,14 +111,20 @@ class SinilinkDataUpdateCoordinator(DataUpdateCoordinator[SinilinkData]):
     ) -> None:
         """Initialise the coordinator."""
         self.client = client
+        self.entry = entry
         self.scan_interval = timedelta(seconds=scan_interval)
         self._polling_enabled = True
+
+        kwargs: dict[str, Any] = {}
+        if _SUPPORTS_CONFIG_ENTRY:
+            kwargs["config_entry"] = entry
+
         super().__init__(
             hass,
             LOGGER,
             name=f"{DOMAIN}-{entry.title}",
-            config_entry=entry,
             update_interval=self.scan_interval,
+            **kwargs,
         )
 
     @property

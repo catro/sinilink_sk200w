@@ -18,12 +18,13 @@ class SinilinkEntity(CoordinatorEntity[SinilinkDataUpdateCoordinator]):
     def __init__(self, coordinator: SinilinkDataUpdateCoordinator, key: str) -> None:
         """Initialise the entity."""
         super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{key}"
-        host = coordinator.config_entry.data[CONF_HOST]
+        entry = coordinator.entry
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
+        host = entry.data[CONF_HOST]
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
+            identifiers={(DOMAIN, entry.entry_id)},
             manufacturer=MANUFACTURER,
             model=MODEL,
-            name=coordinator.config_entry.title,
+            name=entry.title,
             configuration_url=f"http://{host}",
         )

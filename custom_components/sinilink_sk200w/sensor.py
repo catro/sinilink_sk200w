@@ -14,7 +14,7 @@ from homeassistant.components.sensor import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SinilinkConfigEntry
+from . import SinilinkConfigEntry, get_coordinator
 from .coordinator import SinilinkData, SinilinkDataUpdateCoordinator
 from .entity import SinilinkEntity
 
@@ -107,7 +107,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensors."""
-    coordinator = entry.runtime_data
+    coordinator = get_coordinator(hass, entry)
     async_add_entities(
         SinilinkSensor(coordinator, description)
         for description in SENSOR_DESCRIPTIONS
