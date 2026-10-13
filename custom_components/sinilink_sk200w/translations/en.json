@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sinilink SK200W",
+        "description": "Set up the Sinilink SK200W adjustable power supply (Modbus RTU over UDP).",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "slave": "Modbus slave address",
+          "scan_interval": "Update interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the device",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sinilink SK200W options",
+        "data": {
+          "scan_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "output": { "name": "Output" },
+      "constant_current": { "name": "Constant current mode" },
+      "constant_voltage": { "name": "Constant voltage mode" },
+      "protection": { "name": "Protection" },
+      "connectivity": { "name": "Communication" }
+    },
+    "sensor": {
+      "voltage_out": { "name": "Output voltage" },
+      "current_out": { "name": "Output current" },
+      "power_out": { "name": "Output power" },
+      "voltage_in": { "name": "Input voltage" },
+      "temperature": { "name": "Temperature" },
+      "temperature_external": { "name": "External temperature" },
+      "capacity": { "name": "Battery capacity" },
+      "energy": { "name": "Battery energy" }
+    },
+    "number": {
+      "voltage_set": { "name": "Voltage setpoint" },
+      "current_set": { "name": "Current setpoint" }
+    },
+    "switch": {
+      "update": { "name": "Modbus updates" }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "domain": "sinilink_sk200w",
+  "name": "Sinilink SK200W",
+  "codeowners": ["@catro"],
+  "config_flow": true,
+  "documentation": "https://github.com/catro/sinilink_sk200w",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/catro/sinilink_sk200w/issues",
+  "loggers": ["pymodbus"],
+  "requirements": ["pymodbus==3.8.3"],
+  "version": "0.1.0"
+}

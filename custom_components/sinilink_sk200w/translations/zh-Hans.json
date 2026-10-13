@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sinilink SK200W",
+        "description": "设置 Sinilink SK200W 可调电源（Modbus RTU over UDP）。",
+        "data": {
+          "host": "IP 地址",
+          "port": "端口",
+          "slave": "Modbus 从站地址",
+          "scan_interval": "读取间隔（秒）"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "无法连接到设备",
+      "unknown": "发生未知错误"
+    },
+    "abort": {
+      "already_configured": "该设备已经配置"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sinilink SK200W 选项",
+        "data": {
+          "scan_interval": "读取间隔（秒）"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "output": { "name": "输出状态" },
+      "constant_current": { "name": "恒流模式" },
+      "constant_voltage": { "name": "恒压模式" },
+      "protection": { "name": "保护状态" },
+      "connectivity": { "name": "通信状态" }
+    },
+    "sensor": {
+      "voltage_out": { "name": "输出电压" },
+      "current_out": { "name": "输出电流" },
+      "power_out": { "name": "输出功率" },
+      "voltage_in": { "name": "输入电压" },
+      "temperature": { "name": "系统温度" },
+      "temperature_external": { "name": "探头温度" },
+      "capacity": { "name": "输出容量" },
+      "energy": { "name": "输出能量" }
+    },
+    "number": {
+      "voltage_set": { "name": "设置电压" },
+      "current_set": { "name": "设置电流" }
+    },
+    "switch": {
+      "update": { "name": "数据更新" }
+    }
+  }
+}
