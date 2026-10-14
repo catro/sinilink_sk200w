@@ -5,23 +5,27 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, Final
 
 from pymodbus.exceptions import ModbusException
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     CAPACITY_SCALE,
     CURRENT_SCALE,
     DOMAIN,
+    ENERGY_LIMIT_SCALE,
     LOGGER,
     MASK_CONSTANT_CURRENT,
     MASK_OUTPUT_ENABLE,
+    PARAM_COUNT,
+    PARAM_START,
     POLL_COUNT,
     POLL_START,
+    POWER_PROTECTION_SCALE,
     POWER_SCALE,
     REG_CAPACITY,
     REG_CURRENT_OUT,
@@ -34,12 +38,26 @@ from .const import (
     REG_POWER_OUT,
     REG_PROTECTION,
     REG_REGULATION_MODE,
+    REG_S_ETP,
+    REG_S_INI,
+    REG_S_LVP,
+    REG_S_OAH_H,
+    REG_S_OAH_L,
+    REG_S_OCP,
+    REG_S_OHP_H,
+    REG_S_OHP_M,
+    REG_S_OPP,
+    REG_S_OTP,
+    REG_S_OVP,
+    REG_S_OWH_H,
+    REG_S_OWH_L,
     REG_TEMPERATURE,
     REG_TEMPERATURE_EXTERNAL,
     REG_VOLTAGE_IN,
     REG_VOLTAGE_OUT,
     REG_VOLTAGE_SET,
     TEMPERATURE_INVALID_SENTINELS,
+    TEMPERATURE_LIMIT_SCALE,
     TEMPERATURE_SCALE,
     VOLTAGE_SCALE,
 )
@@ -49,6 +67,19 @@ from .modbus_client import SinilinkModbusClient
 # releases.  Detect support so the integration also runs on older versions.
 _SUPPORTS_CONFIG_ENTRY = (
     "config_entry" in inspect.signature(DataUpdateCoordinator.__init__).parameters
+)
+
+_PARAM_FIELDS: Final = (
+    "undervoltage_protection",
+    "overvoltage_protection",
+    "overcurrent_protection",
+    "overpower_protection",
+    "time_limit_minutes",
+    "capacity_limit",
+    "energy_limit",
+    "overtemp_protection",
+    "probe_overtemp_protection",
+    "power_on_output",
 )
 
 
@@ -72,6 +103,18 @@ class SinilinkData:
     protection: int
     regulation_mode: int
     output_enable: int
+
+    # Protections / limits (M0 parameter set); None when not available.
+    undervoltage_protection: float | None = None
+    overvoltage_protection: float | None = None
+    overcurrent_protection: float | None = None
+    overpower_protection: float | None = None
+    time_limit_minutes: float | None = None
+    capacity_limit: float | None = None
+    energy_limit: float | None = None
+    overtemp_protection: float | None = None
+    probe_overtemp_protection: float | None = None
+    power_on_output: bool | None = None
 
     @property
     def output_on(self) -> bool:
@@ -114,6 +157,7 @@ class SinilinkDataUpdateCoordinator(DataUpdateCoordinator[SinilinkData]):
         self.entry = entry
         self.scan_interval = timedelta(seconds=scan_interval)
         self._polling_enabled = True
+        self._optional_read_failed: set[int] = set()
 
         kwargs: dict[str, Any] = {}
         if _SUPPORTS_CONFIG_ENTRY:
@@ -144,6 +188,37 @@ class SinilinkDataUpdateCoordinator(DataUpdateCoordinator[SinilinkData]):
         if enable and self.data is not None:
             await self.async_request_refresh()
 
+    async def async_write_register(self, address: int, value: int) -> None:
+        """Write a single holding register on the device."""
+        await self.client.async_write_register(address, value)
+
+    @callback
+    def async_update_field(self, field: str, value: Any) -> None:
+        """Optimistically update a single cached field after a write."""
+        if self.data is not None:
+            self.async_set_updated_data(replace(self.data, **{field: value}))
+
+    async def async_set_output(self, enable: bool) -> None:
+        """Enable or disable the power supply output.
+
+        A latched protection must be cleared before the output can be enabled
+        again, so write ``0`` to ``PROTECT`` (0x0010) first when switching on.
+        """
+        if enable:
+            await self.client.async_write_register(REG_PROTECTION, 0)
+        await self.client.async_write_register(
+            REG_OUTPUT_ENABLE, MASK_OUTPUT_ENABLE if enable else 0
+        )
+
+        if self.data is not None:
+            self.async_set_updated_data(
+                replace(
+                    self.data,
+                    output_enable=MASK_OUTPUT_ENABLE if enable else 0,
+                    protection=0 if enable else self.data.protection,
+                )
+            )
+
     async def async_write_setpoint(
         self, *, voltage: float | None = None, current: float | None = None
     ) -> None:
@@ -153,6 +228,20 @@ class SinilinkDataUpdateCoordinator(DataUpdateCoordinator[SinilinkData]):
         write the cached data is updated optimistically so the number entities
         reflect the new setpoint immediately; the next poll reconciles it.
         """
+        if (
+            voltage is not None
+            and self.data is not None
+            and self.data.overvoltage_protection is not None
+            and voltage > self.data.overvoltage_protection
+        ):
+            # Writing a setpoint above S-OVP makes the device latch an OVP trip.
+            LOGGER.warning(
+                "Requested voltage %.2f V is above the over-voltage protection "
+                "threshold of %.2f V; the device may latch an OVP protection",
+                voltage,
+                self.data.overvoltage_protection,
+            )
+
         if voltage is not None:
             await self.client.async_write_register(
                 REG_VOLTAGE_SET, round(voltage / VOLTAGE_SCALE)
@@ -184,14 +273,57 @@ class SinilinkDataUpdateCoordinator(DataUpdateCoordinator[SinilinkData]):
             msg = f"Error communicating with Sinilink SK200W: {err}"
             raise UpdateFailed(msg) from err
 
-        if len(registers) < POLL_COUNT:
+        if len(registers) != POLL_COUNT:
             msg = (
                 f"Incomplete response from device: got {len(registers)} "
                 f"registers, expected {POLL_COUNT}"
             )
             raise UpdateFailed(msg)
 
-        return self._parse(registers)
+        data = self._parse(registers)
+
+        # The parameter block is not present on every model, so a failed read
+        # there must not fail the whole update cycle.
+        params = await self._async_read_optional(PARAM_START, PARAM_COUNT)
+        if params is not None:
+            data = replace(data, **self._parse_params(params))
+        elif self.data is not None:
+            data = replace(data, **self._carry(self.data, _PARAM_FIELDS))
+
+        return data
+
+    async def _async_read_optional(self, address: int, count: int) -> list[int] | None:
+        """Read a register block that may not exist on this model."""
+        try:
+            registers = await self.client.async_read_holding_registers(address, count)
+        except (ModbusException, OSError) as err:
+            if address not in self._optional_read_failed:
+                self._optional_read_failed.add(address)
+                LOGGER.warning(
+                    "Register block 0x%04X is not available on this device (%s); "
+                    "entities using it will show no value",
+                    address,
+                    err,
+                )
+            else:
+                LOGGER.debug("Optional read at 0x%04X failed: %s", address, err)
+            return None
+        # An exact length is required: RTU over UDP has no transaction id, so a
+        # mismatched reply must never be accepted as if it were ours.
+        if len(registers) != count:
+            LOGGER.debug(
+                "Ignoring reply with %d registers for block 0x%04X (%d expected)",
+                len(registers),
+                address,
+                count,
+            )
+            return None
+        return registers
+
+    @staticmethod
+    def _carry(previous: SinilinkData, fields: tuple[str, ...]) -> dict[str, Any]:
+        """Return the previous values for the given cached fields."""
+        return {field: getattr(previous, field) for field in fields}
 
     @staticmethod
     def _parse(registers: list[int]) -> SinilinkData:
@@ -231,3 +363,29 @@ class SinilinkDataUpdateCoordinator(DataUpdateCoordinator[SinilinkData]):
             regulation_mode=reg(REG_REGULATION_MODE),
             output_enable=reg(REG_OUTPUT_ENABLE),
         )
+
+    @staticmethod
+    def _parse_params(registers: list[int]) -> dict[str, Any]:
+        """Parse the M0 parameter block (0x0052-0x005E)."""
+
+        def reg(address: int) -> int:
+            return registers[address - PARAM_START]
+
+        def u32(low: int) -> int:
+            # 32-bit values are stored low word first.
+            return reg(low) | (reg(low + 1) << 16)
+
+        return {
+            "undervoltage_protection": reg(REG_S_LVP) * VOLTAGE_SCALE,
+            "overvoltage_protection": reg(REG_S_OVP) * VOLTAGE_SCALE,
+            "overcurrent_protection": reg(REG_S_OCP) * CURRENT_SCALE,
+            "overpower_protection": reg(REG_S_OPP) * POWER_PROTECTION_SCALE,
+            "time_limit_minutes": float(
+                reg(REG_S_OHP_H) * 60 + reg(REG_S_OHP_M)
+            ),
+            "capacity_limit": u32(REG_S_OAH_L) * CAPACITY_SCALE,
+            "energy_limit": u32(REG_S_OWH_L) * ENERGY_LIMIT_SCALE,
+            "overtemp_protection": reg(REG_S_OTP) * TEMPERATURE_LIMIT_SCALE,
+            "probe_overtemp_protection": reg(REG_S_ETP) * TEMPERATURE_LIMIT_SCALE,
+            "power_on_output": bool(reg(REG_S_INI)),
+        }

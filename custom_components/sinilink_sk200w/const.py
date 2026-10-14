@@ -19,7 +19,10 @@ DEFAULT_PORT: Final = 1024
 DEFAULT_SLAVE: Final = 1
 DEFAULT_SCAN_INTERVAL: Final = 5
 DEFAULT_TIMEOUT: Final = 3
-DEFAULT_RETRIES: Final = 3
+# No internal retries: RTU over UDP carries no transaction id, so a pymodbus
+# retry sends a duplicate frame whose late answer would be matched to the next
+# request.  A failed poll is retried by the next scheduled update instead.
+DEFAULT_RETRIES: Final = 0
 
 # Register scaling factors
 VOLTAGE_SCALE: Final = 0.01  # 0.01 V per unit
@@ -60,7 +63,35 @@ MASK_CONSTANT_CURRENT: Final = 0x0001
 # connected (e.g. raw 8888 -> 888.8 °C).  Reported as "unknown" instead.
 TEMPERATURE_INVALID_SENTINELS: Final = frozenset({8888, -8888, 32767, -32768})
 
-# Writable setpoint limits used by the number entities.  Adjust these to match
-# your specific XY-SK model (the device clamps out-of-range values itself).
-MAX_VOLTAGE_SET: Final = 60.0  # V
-MAX_CURRENT_SET: Final = 20.0  # A
+# Writable setpoint limits used by the number entities.  These match the
+# Sinilink SK200W (40 V / 9 A / 200 W); adjust them for a different model.
+MAX_VOLTAGE_SET: Final = 40.0  # V
+MAX_CURRENT_SET: Final = 9.0  # A
+MAX_POWER_SET: Final = 200.0  # W
+MAX_TIME_LIMIT: Final = 5999.0  # minutes (99 h 59 min)
+MAX_CAPACITY_LIMIT: Final = 9999.0  # Ah
+MAX_ENERGY_LIMIT: Final = 4_200_000.0  # Wh
+MAX_TEMPERATURE_LIMIT: Final = 110.0  # °C
+
+# --- M0 parameter set (live operating parameters, 0x0052-0x005E) ---------
+REG_S_LVP: Final = 0x0052  # input undervoltage protection threshold
+REG_S_OVP: Final = 0x0053  # output overvoltage protection threshold
+REG_S_OCP: Final = 0x0054  # output overcurrent protection threshold
+REG_S_OPP: Final = 0x0055  # output overpower protection threshold
+REG_S_OHP_H: Final = 0x0056  # maximum output time, hours
+REG_S_OHP_M: Final = 0x0057  # maximum output time, minutes
+REG_S_OAH_L: Final = 0x0058  # maximum output charge, low word
+REG_S_OAH_H: Final = 0x0059  # maximum output charge, high word
+REG_S_OWH_L: Final = 0x005A  # maximum output energy, low word
+REG_S_OWH_H: Final = 0x005B  # maximum output energy, high word
+REG_S_OTP: Final = 0x005C  # over-temperature protection
+REG_S_INI: Final = 0x005D  # power-on output state (0=off, 1=on)
+REG_S_ETP: Final = 0x005E  # external probe over-temperature protection (SK)
+
+PARAM_START: Final = REG_S_LVP
+PARAM_COUNT: Final = 13  # 0x0052-0x005E
+
+# Additional scale factors (SK family)
+POWER_PROTECTION_SCALE: Final = 0.1  # S-OPP: 10 -> 1 W
+ENERGY_LIMIT_SCALE: Final = 0.01  # S-OWH: 100 -> 1 Wh
+TEMPERATURE_LIMIT_SCALE: Final = 1.0  # S-OTP / S-ETP: raw value equals degrees

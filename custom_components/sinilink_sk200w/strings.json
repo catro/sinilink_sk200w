@@ -50,10 +50,21 @@
     },
     "number": {
       "voltage_set": { "name": "Voltage setpoint" },
-      "current_set": { "name": "Current setpoint" }
+      "current_set": { "name": "Current setpoint" },
+      "undervoltage_protection": { "name": "Undervoltage protection" },
+      "overvoltage_protection": { "name": "Overvoltage protection" },
+      "overcurrent_protection": { "name": "Overcurrent protection" },
+      "max_power": { "name": "Maximum output power" },
+      "max_time": { "name": "Maximum output time" },
+      "max_capacity": { "name": "Maximum output capacity" },
+      "max_energy": { "name": "Maximum output energy" },
+      "overtemp_protection": { "name": "Over-temperature protection" },
+      "probe_overtemp_protection": { "name": "Probe over-temperature" }
     },
     "switch": {
-      "update": { "name": "Modbus updates" }
+      "update": { "name": "Modbus updates" },
+      "output": { "name": "Output" },
+      "power_on_output": { "name": "Power-on output" }
     }
   }
 }

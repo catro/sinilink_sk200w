@@ -15,6 +15,10 @@ class SinilinkEntity(CoordinatorEntity[SinilinkDataUpdateCoordinator]):
 
     _attr_has_entity_name = True
 
+    #: Entities that must stay available while polling is switched off (i.e.
+    #: the switch that turns polling back on) set this to True.
+    _available_when_polling_disabled = False
+
     def __init__(self, coordinator: SinilinkDataUpdateCoordinator, key: str) -> None:
         """Initialise the entity."""
         super().__init__(coordinator)
@@ -28,3 +32,17 @@ class SinilinkEntity(CoordinatorEntity[SinilinkDataUpdateCoordinator]):
             name=entry.title,
             configuration_url=f"http://{host}",
         )
+
+    @property
+    def available(self) -> bool:
+        """Return True if the entity is available.
+
+        While the "Modbus updates" switch is off no new data is fetched, so
+        every entity except the switch itself is reported as unavailable.
+        """
+        if (
+            not self.coordinator.polling_enabled
+            and not self._available_when_polling_disabled
+        ):
+            return False
+        return super().available

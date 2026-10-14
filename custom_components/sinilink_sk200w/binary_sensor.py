@@ -64,9 +64,12 @@ class SinilinkBinarySensor(SinilinkEntity, BinarySensorEntity):
     def available(self) -> bool:
         """Return True if the entity is available.
 
-        The connectivity sensor stays available even when the device cannot be
+        Every entity becomes unavailable while the "Modbus updates" switch is
+        off.  The connectivity sensor stays available when the device cannot be
         reached, so that it can report the loss of communication.
         """
+        if not self.coordinator.polling_enabled:
+            return False
         if self._key == "connectivity":
             return True
         return super().available

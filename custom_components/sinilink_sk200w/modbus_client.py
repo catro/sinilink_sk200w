@@ -8,8 +8,10 @@ Modbus **RTU** frames tunnelled inside **UDP** datagrams.
 
 from __future__ import annotations
 
+import asyncio
 from functools import lru_cache
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from pymodbus.client import AsyncModbusUdpClient
@@ -19,6 +21,14 @@ from pymodbus.framer import FramerType
 
 class SinilinkModbusClient:
     """Thin async wrapper around pymodbus for RTU-over-UDP communication."""
+
+    #: The device silently drops requests that arrive less than ~50 ms after the
+    #: previous one, so keep a safety margin between two requests.
+    MIN_FRAME_GAP = 0.1
+
+    #: Extra wait after a failed request so that a late reply arrives while no
+    #: request is pending (RTU over UDP has no transaction id to match on).
+    DRAIN_TIME = 0.3
 
     def __init__(
         self,
@@ -30,6 +40,7 @@ class SinilinkModbusClient:
     ) -> None:
         """Initialise the client."""
         self._slave = slave
+        self._last_request: float | None = None
         self._client = AsyncModbusUdpClient(
             host=host,
             port=port,
@@ -37,6 +48,14 @@ class SinilinkModbusClient:
             timeout=timeout,
             retries=retries,
         )
+
+    async def _async_throttle(self) -> None:
+        """Wait long enough since the previous request to be answered."""
+        if self._last_request is not None:
+            delay = self.MIN_FRAME_GAP - (monotonic() - self._last_request)
+            if delay > 0:
+                await asyncio.sleep(delay)
+        self._last_request = monotonic()
 
     @property
     def connected(self) -> bool:
@@ -68,10 +87,16 @@ class SinilinkModbusClient:
     ) -> list[int]:
         """Read ``count`` holding registers starting at ``address``."""
         await self._async_ensure_connected()
-        result = await self._client.read_holding_registers(
-            address, count=count, slave=self._slave
-        )
+        await self._async_throttle()
+        try:
+            result = await self._client.read_holding_registers(
+                address, count=count, slave=self._slave
+            )
+        except ModbusException:
+            await asyncio.sleep(self.DRAIN_TIME)
+            raise
         if result.isError():
+            await asyncio.sleep(self.DRAIN_TIME)
             msg = f"Error reading holding registers at {address}: {result}"
             raise ModbusException(msg)
         return list(result.registers)
@@ -79,10 +104,16 @@ class SinilinkModbusClient:
     async def async_write_register(self, address: int, value: int) -> None:
         """Write a single holding register."""
         await self._async_ensure_connected()
-        result = await self._client.write_register(
-            address, value, slave=self._slave
-        )
+        await self._async_throttle()
+        try:
+            result = await self._client.write_register(
+                address, value, slave=self._slave
+            )
+        except ModbusException:
+            await asyncio.sleep(self.DRAIN_TIME)
+            raise
         if result.isError():
+            await asyncio.sleep(self.DRAIN_TIME)
             msg = f"Error writing register at {address}: {result}"
             raise ModbusException(msg)
 
